@@ -75,6 +75,16 @@ final class CodeceptionHelper
 
 	public static function hasAttribute(TestInterface $test, string $attributeName): bool
 	{
+		return (bool) self::getAttribute($test, $attributeName);
+	}
+
+	/**
+	 * @template T
+	 * @param class-string<T> $attributeName
+	 * @return T|null
+	 */
+	public static function getAttribute(TestInterface $test, string $attributeName): ?object
+	{
 		$reflections = self::getReflections($test);
 
 		if (!$reflections) {
@@ -83,7 +93,31 @@ final class CodeceptionHelper
 
 		[$reflectionClass, $reflectionMethod] = $reflections;
 
-		return $reflectionClass->getAttributes($attributeName) || $reflectionMethod->getAttributes($attributeName);
+
+		$attributes = $reflectionMethod->getAttributes($attributeName);
+
+		if (!$attributes) {
+			$attributes = $reflectionClass->getAttributes($attributeName);
+		}
+
+		if (!$attributes) {
+			return null;
+		}
+
+		return $attributes[0]->newInstance() ?? null;
+	}
+
+	public static function replacePathParameters(?string $path): ?string
+	{
+		if (!$path) {
+			return $path;
+		}
+
+		return strtr($path, [
+			'$dataDir' => rtrim(codecept_data_dir(), '/'),
+			'$rootDir' => rtrim(codecept_root_dir(), '/'),
+			'$testsDir' => realpath(rtrim(codecept_data_dir(), '/') . '/..'),
+		]);
 	}
 
 }

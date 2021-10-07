@@ -23,9 +23,12 @@ use Symfony\Component\BrowserKit\CookieJar;
 use Symfony\Component\BrowserKit\History;
 use Symfony\Component\BrowserKit\Request;
 use Symfony\Component\BrowserKit\Response;
+use WebChemistry\Codeception\Exceptions\InvalidSignalReceivedException;
 
 final class NetteClient extends AbstractBrowser
 {
+
+	public bool $debugMode = false;
 
 	/** @var callable[] */
 	public array $onRequest = [];
@@ -90,6 +93,10 @@ final class NetteClient extends AbstractBrowser
 		try {
 			$this->internals->presenter = $presenter = $presenterFactory->createPresenter($applicationRequest->getPresenterName());
 		} catch (InvalidPresenterException $e) {
+			if ($this->debugMode) {
+				throw $e;
+			}
+
 			return $this->lastResponse = new Response($e->getMessage(), 404);
 		}
 
@@ -110,7 +117,15 @@ final class NetteClient extends AbstractBrowser
 		try {
 			$response = $presenter->run($applicationRequest);
 		} catch (BadRequestException $e) {
+			if ($this->debugMode) {
+				throw $e;
+			}
+
 			$this->internals->throwBadRequest = true;
+
+			if ($e->getCode() === 403 && str_starts_with($e->getMessage(), 'The signal receiver component')) {
+				throw new InvalidSignalReceivedException($e->getMessage(), previous: $e);
+			}
 
 			return $this->lastResponse = new Response($e->getMessage(), 404);
 		}

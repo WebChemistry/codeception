@@ -8,7 +8,20 @@ use Codeception\TestInterface;
 final class NetteFixturesModule extends Module
 {
 
-	public function _before(TestInterface $test): void
+	public function _initialize()
+	{
+		/** @var NetteDatabaseModule $netteDatabaseModule */
+		$netteDatabaseModule = $this->getModule(NetteDatabaseModule::class);
+
+		$netteDatabaseModule->onBeforeAfter[] = function (): void {
+			$this->install();
+		};
+		$netteDatabaseModule->onAfter[] = function (): void {
+			$this->uninstall();
+		};
+	}
+
+	private function install(): void
 	{
 		$container = $this->getDIModule()->getContainer();
 		foreach ($this->config as $class) {
@@ -18,7 +31,7 @@ final class NetteFixturesModule extends Module
 		}
 	}
 
-	public function _after(TestInterface $test): void
+	private function uninstall(): void
 	{
 		$container = $this->getDIModule()->getContainer();
 		foreach ($this->config as $class) {

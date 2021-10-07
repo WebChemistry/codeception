@@ -23,6 +23,8 @@ use Symfony\Component\BrowserKit\Response;
 final class NetteClientModule extends Framework
 {
 
+	private bool $debugMode = false;
+
 	private string $scriptPath = '/';
 
 	public function _before(TestInterface $test): void
@@ -143,6 +145,12 @@ final class NetteClientModule extends Framework
 	public function getLastResponse(): Response
 	{
 		return $this->client->lastResponse;
+	}
+
+	public function enableDebugMode(): void
+	{
+		$this->client->debugMode = true;
+		$this->debugMode = true;
 	}
 
 	private function getDIModule(): NetteDIModule

@@ -2,6 +2,8 @@
 
 namespace WebChemistry\Codeception\Module;
 
+use Nette\Schema\Helpers;
+use WebChemistry\Codeception\Attribute\NetteTemp;
 use WebChemistry\Codeception\Attribute\PurgeTemp;
 use WebChemistry\Codeception\Helper\CodeceptionHelper;
 use Codeception\Lib\ModuleContainer;
@@ -21,30 +23,27 @@ final class NetteDIModule extends Module
 	protected $config = [
 		'factory' => '',
 		'config' => null,
-		'paths' => [],
+		'tempDir' => '$dataDir/_nette',
 	];
 
-	protected $requiredFields = ['factory'];
+	protected $requiredFields = ['factory', 'config'];
 
-	public function __construct(ModuleContainer $moduleContainer, $config = null)
-	{
-		parent::__construct($moduleContainer, $config);
-
-		$dataDir = rtrim(codecept_data_dir(), '/');
-
-		foreach ($this->config['paths'] as $i => $path) {
-			if (!str_contains('%dataDir%', $path)) {
-				throw new LogicException(sprintf('Parameter %%dataDir%% must contains path %s.', $path));
-			}
-			$this->config['paths'][$i] = strtr($path, [
-				'%dataDir%' => $dataDir,
-			]);
-		}
-	}
+	private array $parameters = [];
 
 	public function _beforeSuite($settings = [])
 	{
-		$this->purgeTemp();
+		$this->_purgeTemp();
+	}
+
+	protected function validateConfig()
+	{
+		parent::validateConfig();
+
+		$this->config['config'] = CodeceptionHelper::replacePathParameters($this->config['config']);
+		$this->config['tempDir'] = CodeceptionHelper::replacePathParameters($this->config['tempDir']);
+
+		$this->backupConfig['config'] = CodeceptionHelper::replacePathParameters($this->backupConfig['config']);
+		$this->backupConfig['tempDir'] = CodeceptionHelper::replacePathParameters($this->backupConfig['tempDir']);
 	}
 
 	public function _before(TestInterface $test)
@@ -74,48 +73,28 @@ final class NetteDIModule extends Module
 			$property->setValue($object, $this->getContainer()->getByType($type->getName()));
 		}
 
-		if (CodeceptionHelper::hasAttribute($test, PurgeTemp::class)) {
-			$this->purgeTemp();
-		}
-
-		foreach ($this->config['paths'] as $path) {
-			if (!is_dir($path)) {
-				FileSystem::createDir($path);
-			}
-		}
-	}
-
-	public function _after(TestInterface $test): void
-	{
-		foreach ($this->config['paths'] as $path) {
-			FileSystem::delete($path);
+		if (CodeceptionHelper::getAttribute($test, NetteTemp::class)?->purge) {
+			$this->_purgeTemp(true);
 		}
 	}
 
 	public function _afterSuite()
 	{
-		$this->purgeTemp(false);
-	}
-
-	public function getTempDirectory(string $appendPath = ''): string
-	{
-		if ($appendPath) {
-			$appendPath = '_temp/' . ltrim($appendPath, '/');
-		} else {
-			$appendPath = '_temp';
-		}
-
-		return codecept_data_dir($appendPath);
+		$this->_purgeTemp(false);
 	}
 
 	public function _recreateContainer(): Container
 	{
-		$config = $this->config['config'];
-		if ($config) {
-			$config = strtr($config, ['%rootDir%' => rtrim(codecept_root_dir(), '/')]);
-		}
+		return $this->container = ($this->config['factory'])(
+			$this->config['config'],
+			$this->config['tempDir'],
+			$this->parameters,
+		);
+	}
 
-		return $this->container = ($this->config['factory'])($config, $this->getTempDirectory(), $this->config['paths']);
+	public function _addParameters(array $parameters): void
+	{
+		$this->parameters = Helpers::merge($parameters, $this->parameters);
 	}
 
 	public function getContainer(): Container
@@ -127,31 +106,20 @@ final class NetteDIModule extends Module
 		return $this->container;
 	}
 
-//	public function replaceService(string $class, object $object): void
-//	{
-//		$names = $this->container->findByType($class);
-//		foreach ($names as $name) {
-//			if ($this->container->isCreated($name)) {
-//				$this->container->removeService($name);
-//			}
-//
-//			$this->container->addService($name, $object);
-//		}
-//	}
-
 	private function removeContainer(): void
 	{
 		unset($this->container);
 	}
 
-	private function purgeTemp(bool $createTemp = true): void
+	private function _purgeTemp(bool $createTemp = true): void
 	{
-		if (is_dir($this->getTempDirectory())) {
-			FileSystem::delete($this->getTempDirectory());
+		$dir = $this->config['tempDir'];
+		if (is_dir($dir)) {
+			FileSystem::delete($dir);
 		}
 
 		if ($createTemp) {
-			FileSystem::createDir($this->getTempDirectory());
+			FileSystem::createDir($dir);
 		}
 
 		unset($this->container);
