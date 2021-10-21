@@ -85,6 +85,8 @@ final class NetteDIModule extends Module
 
 	public function _recreateContainer(): Container
 	{
+		$this->removeContainer();
+
 		return $this->container = ($this->config['factory'])(
 			$this->config['config'],
 			$this->config['tempDir'],
@@ -108,6 +110,10 @@ final class NetteDIModule extends Module
 
 	private function removeContainer(): void
 	{
+		if (session_status() === PHP_SESSION_ACTIVE) {
+			session_write_close();
+		}
+
 		unset($this->container);
 	}
 
