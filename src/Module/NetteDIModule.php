@@ -2,11 +2,6 @@
 
 namespace WebChemistry\Codeception\Module;
 
-use Nette\Schema\Helpers;
-use WebChemistry\Codeception\Attribute\NetteTemp;
-use WebChemistry\Codeception\Attribute\PurgeTemp;
-use WebChemistry\Codeception\Helper\CodeceptionHelper;
-use Codeception\Lib\ModuleContainer;
 use Codeception\Module;
 use Codeception\TestInterface;
 use LogicException;
@@ -14,41 +9,57 @@ use Nette\DI\Attributes\Inject;
 use Nette\DI\Container;
 use Nette\Utils\FileSystem;
 use ReflectionNamedType;
+use WebChemistry\Codeception\Attribute\PurgeNetteTemp;
+use WebChemistry\Codeception\Attribute\PurgeTemp;
+use WebChemistry\Codeception\Helper\CodeceptionHelper;
+use WebChemistry\Codeception\Module\Objects\CodeceptionBootingInterface;
 
 final class NetteDIModule extends Module
 {
 
-	private Container $container;
-
 	protected $config = [
-		'factory' => '',
-		'config' => null,
-		'tempDir' => '$dataDir/_nette',
+		'class' => null,
 	];
 
-	protected $requiredFields = ['factory', 'config'];
+	protected $requiredFields = ['class'];
 
-	private array $parameters = [];
+	private CodeceptionBootingInterface $booting;
+
+	private Container $container;
+
+	private CodeceptionConfiguration $configuration;
 
 	public function _beforeSuite($settings = [])
 	{
-		$this->_purgeTemp();
-	}
+		foreach ($this->getBooting()->getDirectories() as $directory) {
+			if ($directory->truncateAfterEachTest) {
+				continue;
+			}
 
-	protected function validateConfig()
-	{
-		parent::validateConfig();
+			$this->purge($directory->path, true);
+		}
 
-		$this->config['config'] = CodeceptionHelper::replacePathParameters($this->config['config']);
-		$this->config['tempDir'] = CodeceptionHelper::replacePathParameters($this->config['tempDir']);
-
-		$this->backupConfig['config'] = CodeceptionHelper::replacePathParameters($this->backupConfig['config']);
-		$this->backupConfig['tempDir'] = CodeceptionHelper::replacePathParameters($this->backupConfig['tempDir']);
+		$this->purge($this->getBooting()->getTempDir(), true);
+		$this->removeContainer();
 	}
 
 	public function _before(TestInterface $test)
 	{
+		foreach ($this->getBooting()->getDirectories() as $directory) {
+			if (!$directory->truncateAfterEachTest) {
+				continue;
+			}
+
+			$this->purge($directory->path, true);
+		}
+
+		if (CodeceptionHelper::getAttribute($test, PurgeNetteTemp::class)?->purge) {
+			$this->purge($this->getBooting()->getTempDir(), true);
+			$this->removeConfiguration();
+		}
+
 		$object = CodeceptionHelper::getTestObject($test);
+
 		foreach (CodeceptionHelper::getPropertiesByAttribute($test, Inject::class) as $property) {
 			$type = $property->getType();
 			if (!$type instanceof ReflectionNamedType) {
@@ -72,63 +83,104 @@ final class NetteDIModule extends Module
 
 			$property->setValue($object, $this->getContainer()->getByType($type->getName()));
 		}
-
-		if (CodeceptionHelper::getAttribute($test, NetteTemp::class)?->purge) {
-			$this->_purgeTemp(true);
-		}
 	}
 
 	public function _afterSuite()
 	{
-		$this->_purgeTemp(false);
-	}
+		foreach ($this->getBooting()->getDirectories() as $directory) {
+			$this->purge($directory->path, false);
+		}
 
-	public function _recreateContainer(): Container
-	{
+		$this->purge($this->getBooting()->getTempDir(), false);
 		$this->removeContainer();
-
-		return $this->container = ($this->config['factory'])(
-			$this->config['config'],
-			$this->config['tempDir'],
-			$this->parameters,
-		);
 	}
 
-	public function _addParameters(array $parameters): void
+	public function getDirectory(string $name, string $path): string
 	{
-		$this->parameters = Helpers::merge($parameters, $this->parameters);
+		foreach ($this->getBooting()->getDirectories() as $directory) {
+			if ($directory->name === $name) {
+				return rtrim($directory->path, '/') . '/' . ltrim($path, '/');
+			}
+		}
+
+		throw new LogicException(sprintf('Directory %s not found', $name));
+	}
+
+	public function getTempDir(): string
+	{
+		return $this->getBooting()->getTempDir();
 	}
 
 	public function getContainer(): Container
 	{
-		if (!isset($this->container)) {
-			$this->_recreateContainer();
+		if (!$this->hasContainer()) {
+			return $this->recreateContainer();
 		}
 
 		return $this->container;
 	}
 
-	private function removeContainer(): void
+	private function purge(string $dir, bool $create): void
+	{
+		if (is_dir($dir)) {
+			FileSystem::delete($dir);
+		}
+
+		if ($create) {
+			FileSystem::createDir($dir);
+		}
+	}
+
+	public function _recreateContainer(): Container
+	{
+		return $this->recreateContainer();
+	}
+
+	private function recreateContainer(): Container
 	{
 		if (session_status() === PHP_SESSION_ACTIVE) {
 			session_write_close();
 		}
 
+		$this->removeContainer();
+
+		return $this->container = $this->getBooting()->createContainer();
+	}
+
+	private function removeContainer(): void
+	{
 		unset($this->container);
 	}
 
-	private function _purgeTemp(bool $createTemp = true): void
+	private function hasContainer(): bool
 	{
-		$dir = $this->config['tempDir'];
-		if (is_dir($dir)) {
-			FileSystem::delete($dir);
+		return isset($this->container);
+	}
+
+	private function getBooting(): CodeceptionBootingInterface
+	{
+		if (!isset($this->booting)) {
+			$booting = $this->config['class'];
+			if (!is_string($booting)) {
+				throw new LogicException('Option class must be a string.');
+			}
+
+			if (!class_exists($booting)) {
+				throw new LogicException(sprintf('Factory class %s does not exist.', $booting));
+			}
+
+			$booting = new $booting();
+
+			if (!$booting instanceof CodeceptionBootingInterface) {
+				throw new LogicException(
+					sprintf('Class %s must be instance of %s.', get_debug_type($booting), CodeceptionBootingInterface::class)
+				);
+			}
+
+			$this->booting = $booting;
 		}
 
-		if ($createTemp) {
-			FileSystem::createDir($dir);
-		}
-
-		unset($this->container);
+		return $this->booting;
 	}
 
 }

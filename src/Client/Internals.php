@@ -11,8 +11,6 @@ final class Internals
 
 	public IPresenter $presenter;
 
-	public Form $form;
-
 	public bool $throwBadRequest = false;
 
 	public function __construct(

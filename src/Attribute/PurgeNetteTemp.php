@@ -5,7 +5,7 @@ namespace WebChemistry\Codeception\Attribute;
 use Attribute;
 
 #[Attribute(Attribute::TARGET_METHOD)]
-final class NetteTemp
+final class PurgeNetteTemp
 {
 
 	/**

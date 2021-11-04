@@ -2,6 +2,7 @@
 
 namespace WebChemistry\Codeception\Helper;
 
+use Codeception\Exception\ModuleException;
 use Codeception\PHPUnit\TestCase;
 use Codeception\TestInterface;
 use ReflectionClass;
@@ -107,17 +108,43 @@ final class CodeceptionHelper
 		return $attributes[0]->newInstance() ?? null;
 	}
 
-	public static function replacePathParameters(?string $path): ?string
+	/**
+	 * @template T of object
+	 * @param string[] $classes
+	 * @param class-string<T> $className
+	 * @return T[]
+	 */
+	public static function loadClasses(string $moduleName, array $classes, string $className, ?string $optionName = null): array
 	{
-		if (!$path) {
-			return $path;
+		$objects = [];
+
+		foreach ($classes as $class) {
+			if (!is_string($class)) {
+				throw new ModuleException(
+					$moduleName,
+					$optionName ?
+						sprintf('Option %s must be array of strings, %s given.', $optionName, get_debug_type($class)) :
+						sprintf('Fixtures must be array of strings, %s given.', get_debug_type($class))
+				);
+			}
+
+			if (!class_exists($class)) {
+				throw new ModuleException($moduleName, sprintf('Class %s does not exist.', $class));
+			}
+
+			$object = new $class();
+
+			if (!$object instanceof $className) {
+				throw new ModuleException(
+					$moduleName,
+					sprintf('Class %s must be instance of %s.', get_debug_type($object), $className)
+				);
+			}
+
+			$objects[] = $object;
 		}
 
-		return strtr($path, [
-			'$dataDir' => rtrim(codecept_data_dir(), '/'),
-			'$rootDir' => rtrim(codecept_root_dir(), '/'),
-			'$testsDir' => realpath(rtrim(codecept_data_dir(), '/') . '/..'),
-		]);
+		return $objects;
 	}
 
 }

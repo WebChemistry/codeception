@@ -4,40 +4,24 @@ namespace WebChemistry\Codeception\Module;
 
 use Codeception\Module;
 use Codeception\TestInterface;
+use LogicException;
+use WebChemistry\Codeception\Helper\CodeceptionHelper;
+use WebChemistry\Codeception\Module\Objects\CodeceptionFixtureInterface;
 
 final class NetteFixturesModule extends Module
 {
 
-	public function _initialize()
-	{
-		/** @var NetteDatabaseModule $netteDatabaseModule */
-		$netteDatabaseModule = $this->getModule(NetteDatabaseModule::class);
+	/** @var CodeceptionFixtureInterface[] */
+	private array $fixtures;
 
-		$netteDatabaseModule->onBeforeAfter[] = function (): void {
-			$this->install();
-		};
-		$netteDatabaseModule->onAfter[] = function (): void {
-			$this->uninstall();
-		};
-	}
-
-	private function install(): void
+	public function _beforeSuite($settings = [])
 	{
-		$container = $this->getDIModule()->getContainer();
-		foreach ($this->config as $class) {
-			if (method_exists($class, 'install')) {
-				[$class, 'install']($container);
-			}
-		}
-	}
+		/** @var NetteDIModule $module */
+		$module = $this->getModule(NetteDIModule::class);
 
-	private function uninstall(): void
-	{
-		$container = $this->getDIModule()->getContainer();
-		foreach ($this->config as $class) {
-			if (method_exists($class, 'uninstall')) {
-				[$class, 'uninstall']($container);
-			}
+		foreach ($this->getFixtures() as $fixture) {
+			$fixture->cleanup($module->getContainer());
+			$fixture->load($module->getContainer());
 		}
 	}
 
@@ -47,6 +31,22 @@ final class NetteFixturesModule extends Module
 		assert($module instanceof NetteDIModule);
 
 		return $module;
+	}
+
+	/**
+	 * @return CodeceptionFixtureInterface[]
+	 */
+	public function getFixtures(): array
+	{
+		if (!isset($this->fixtures)) {
+			$this->fixtures = CodeceptionHelper::loadClasses(
+				self::class,
+				$this->config['fixtures'] ?? [],
+				CodeceptionFixtureInterface::class,
+			);
+		}
+
+		return $this->fixtures;
 	}
 
 }
