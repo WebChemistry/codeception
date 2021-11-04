@@ -41,7 +41,7 @@ final class NetteFixturesModule extends Module
 		if (!isset($this->fixtures)) {
 			$this->fixtures = CodeceptionHelper::loadClasses(
 				self::class,
-				$this->config['fixtures'] ?? [],
+				$this->config ?? [],
 				CodeceptionFixtureInterface::class,
 			);
 		}
