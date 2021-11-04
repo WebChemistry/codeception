@@ -12,7 +12,7 @@ final class NetteFixturesModule extends Module
 {
 
 	/** @var CodeceptionFixtureInterface[] */
-	private array $fixtures;
+	private static array $fixtures;
 
 	public function _beforeSuite($settings = [])
 	{
@@ -38,15 +38,15 @@ final class NetteFixturesModule extends Module
 	 */
 	public function getFixtures(): array
 	{
-		if (!isset($this->fixtures)) {
-			$this->fixtures = CodeceptionHelper::loadClasses(
+		if (!isset(self::$fixtures)) {
+			self::$fixtures = CodeceptionHelper::loadClasses(
 				self::class,
 				$this->config ?? [],
 				CodeceptionFixtureInterface::class,
 			);
 		}
 
-		return $this->fixtures;
+		return self::$fixtures;
 	}
 
 }
