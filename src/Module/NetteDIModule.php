@@ -29,6 +29,11 @@ final class NetteDIModule extends Module
 
 	private CodeceptionConfiguration $configuration;
 
+	public function _initialize()
+	{
+		$this->purge($this->getBooting()->getTempDir(), true);
+	}
+
 	public function _beforeSuite($settings = [])
 	{
 		foreach ($this->getBooting()->getDirectories() as $directory) {
