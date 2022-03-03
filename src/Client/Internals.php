@@ -11,13 +11,16 @@ final class Internals
 
 	public IPresenter $presenter;
 
+	public ?string $redirection = null;
+
+	/** @var mixed[] */
+	public array $flashes = [];
+
 	public bool $throwBadRequest = false;
 
-	public function __construct(
-		public bool $matchRoute = false,
-	)
-	{
-	}
+	public bool $matchRoute = false;
+
+	public ?string $error = null;
 
 	public function getPresenter(): Presenter
 	{

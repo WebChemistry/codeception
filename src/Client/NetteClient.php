@@ -23,6 +23,7 @@ use Symfony\Component\BrowserKit\CookieJar;
 use Symfony\Component\BrowserKit\History;
 use Symfony\Component\BrowserKit\Request;
 use Symfony\Component\BrowserKit\Response;
+use Throwable;
 use WebChemistry\Codeception\Exceptions\InvalidSignalReceivedException;
 
 final class NetteClient extends AbstractBrowser
@@ -30,10 +31,13 @@ final class NetteClient extends AbstractBrowser
 
 	public bool $debugMode = false;
 
-	/** @var callable[] */
-	public array $onRequest = [];
+	/** @var  array<int, callable(Presenter, \Nette\Application\Request): void> */
+	public array $onBeforeRequest = [];
 
-	/** @var callable[] */
+	/** @var  array<int, callable(Presenter, \Nette\Application\Request): void> */
+	public array $onClonedPresenter = [];
+
+	/** @var array<int, callable(Presenter, \Nette\Http\Response): void> */
 	public array $onResponse = [];
 
 	public Response $lastResponse;
@@ -56,10 +60,14 @@ final class NetteClient extends AbstractBrowser
 		parent::__construct($server, $history, $cookieJar);
 	}
 
-	/**
-	 * @param Request $request
-	 */
-	protected function doRequest($request): Response
+	private function reset(): void
+	{
+		$this->onBeforeRequest = [];
+		$this->onResponse = [];
+		$this->onClonedPresenter = [];
+	}
+
+	private function _doRequest(Request $request): Response
 	{
 		$router = $this->container->getByType(Router::class);
 		$params = $router->match($netteRequest = $this->createRequest($request));
@@ -67,6 +75,8 @@ final class NetteClient extends AbstractBrowser
 		$this->internals = new Internals();
 
 		if (!$params) {
+			$this->internals->error = sprintf('No route for HTTP request (%s).', (string) $netteRequest->getUrl());
+
 			return $this->lastResponse = new Response(sprintf('No route for HTTP request (%s).', (string) $netteRequest->getUrl()), 404);
 		}
 
@@ -74,10 +84,14 @@ final class NetteClient extends AbstractBrowser
 
 		$presenter = $params['presenter'] ?? null;
 		if (!is_string($presenter)) {
+			$this->internals->error = 'Missing presenter in route definition.';
+
 			return $this->lastResponse = new Response('Missing presenter in route definition.', 500);
 		}
 
 		if (Strings::startsWith($presenter, 'Nette:') && $presenter !== 'Nette:Micro') {
+			$this->internals->error = 'Invalid request. Presenter is not achievable.';
+
 			return $this->lastResponse = new Response('Invalid request. Presenter is not achievable.', 404);
 		}
 
@@ -93,11 +107,23 @@ final class NetteClient extends AbstractBrowser
 		try {
 			$this->internals->presenter = $presenter = $presenterFactory->createPresenter($applicationRequest->getPresenterName());
 		} catch (InvalidPresenterException $e) {
+			$this->internals->error = sprintf('%s: %s', $e::class, $e->getMessage());
+
 			if ($this->debugMode) {
 				throw $e;
 			}
 
 			return $this->lastResponse = new Response($e->getMessage(), 404);
+		}
+
+		foreach ($this->onClonedPresenter as $callback) {
+			$class = $presenterFactory->createPresenter($applicationRequest->getPresenterName());
+
+			if ($class instanceof Presenter) {
+				$class->autoCanonicalize = false;
+			}
+
+			$callback($class, $applicationRequest);
 		}
 
 		$this->applyToApplication($applicationRequest, $presenter);
@@ -106,17 +132,17 @@ final class NetteClient extends AbstractBrowser
 			$presenter->autoCanonicalize = false;
 		}
 
-		foreach ($this->onRequest as $callback) {
+		foreach ($this->onBeforeRequest as $callback) {
 			$callback($presenter, $applicationRequest);
 		}
-
-		$this->onRequest = [];
 
 		$this->setSameSite($presenter);
 
 		try {
 			$response = $presenter->run($applicationRequest);
 		} catch (BadRequestException $e) {
+			$this->internals->error = sprintf('%s: %s', $e::class, $e->getMessage());
+
 			if ($this->debugMode) {
 				throw $e;
 			}
@@ -130,13 +156,35 @@ final class NetteClient extends AbstractBrowser
 			return $this->lastResponse = new Response($e->getMessage(), 404);
 		}
 
+		if ($response instanceof RedirectResponse) {
+			$this->internals->redirection = $response->getUrl();
+		}
+
+		$this->internals->flashes = iterator_to_array($presenter->getFlashSession());
+
 		foreach ($this->onResponse as $callback) {
 			$callback($presenter, $response);
 		}
 
-		$this->onResponse = [];
-
 		return $this->lastResponse = $this->createResponse($response, $presenter);
+	}
+
+	/**
+	 * @param Request $request
+	 */
+	protected function doRequest($request): Response
+	{
+		try {
+			$response = $this->_doRequest($request);
+		} catch (Throwable $e) {
+			$this->reset();
+
+			throw $e;
+		}
+
+		$this->reset();
+
+		return $response;
 	}
 
 	private function createRequest(Request $request): \Nette\Http\Request
